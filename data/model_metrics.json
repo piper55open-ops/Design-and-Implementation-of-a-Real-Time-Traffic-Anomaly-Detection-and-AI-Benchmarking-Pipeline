@@ -1,0 +1,17 @@
+{
+  "model": "LightGBMRegressor",
+  "dataset": "PEMS03",
+  "sensor_index": 0,
+  "feature": "flow",
+  "window_size": 3,
+  "test_ratio": 0.2,
+  "train_samples": 20964,
+  "test_samples": 5241,
+  "train_mae": 10.15214234698353,
+  "test_mae": 10.21256798522126,
+  "train_rmse": 13.951294751801317,
+  "test_rmse": 14.029548091677231,
+  "train_mape_percent": 13.182758263362684,
+  "test_mape_percent": 13.26167271677861,
+  "model_file": "E:\\codework\\Design-and-Implementation-of-a-Real-Time-Traffic-Anomaly-Detection-and-AI-Benchmarking-Pipeline\\app\\traffic_model.txt"
+}
