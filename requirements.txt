@@ -1,5 +1,5 @@
 fastapi
-uvicorn
+uvicorn[standard]
 pydantic
 python-dotenv
 
@@ -9,10 +9,9 @@ scikit-learn
 lightgbm
 
 requests
-
 streamlit
-plotly
 
 google-genai
+
 pytest
 httpx

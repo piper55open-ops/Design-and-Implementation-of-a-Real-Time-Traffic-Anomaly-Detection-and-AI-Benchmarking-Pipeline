@@ -1,6 +1,5 @@
 import json
 from pathlib import Path
-
 import lightgbm as lgb
 import numpy as np
 from sklearn.metrics import mean_absolute_error, mean_squared_error

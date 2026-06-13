@@ -9,7 +9,7 @@ import requests
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_FILE = BASE_DIR / "data" / "PEMS03.npz"
+DATA_FILE = BASE_DIR / "data" / "PEMS07.npz"
 
 DEFAULT_API_URL = "http://127.0.0.1:8000/v1/traffic/events"
 

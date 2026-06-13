@@ -1,0 +1,44 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment variables and secrets
+.env
+.env.local
+*.key
+
+# IDE files
+.idea/
+
+# Test/cache files
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Runtime logs and generated experiment files
+data/benchmark_events.jsonl
+data/dlq.jsonl
+data/live_traffic.json
+data/dlq_intercept.json
+data/benchmark_summary.json
+data/llm_outputs.jsonl
+
+# Temporary benchmark outputs
+data/benchmark_summary_dirty_*.json
+
+# Raw downloaded data
+data/raw/
+*.h5
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

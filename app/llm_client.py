@@ -1,24 +1,62 @@
 import asyncio
+import json
 import logging
 import os
 import random
 import time
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from dotenv import load_dotenv
 
 
 logger = logging.getLogger(__name__)
-load_dotenv()
 
-API_KEY = os.getenv("GEMINI_API_KEY")
-MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+BASE_DIR = Path(__file__).resolve().parent.parent
+ENV_FILE = BASE_DIR / ".env"
+LLM_OUTPUT_FILE = BASE_DIR / "data" / "llm_outputs.jsonl"
 
-LLM_TIMEOUT_SECONDS = 5.0
+# 强制读取项目根目录下的 .env
+load_dotenv(ENV_FILE, override=True)
+
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+if GOOGLE_API_KEY and GEMINI_API_KEY:
+    logger.info("Both GOOGLE_API_KEY and GEMINI_API_KEY are set. Using GOOGLE_API_KEY.")
+
+API_KEY = GOOGLE_API_KEY or GEMINI_API_KEY
+MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
+
+LLM_TIMEOUT_SECONDS = 10.0
 DEFAULT_COOLDOWN_SECONDS = 30.0
 
 llm_lock = asyncio.Lock()
 LLM_COOLDOWN_UNTIL = 0.0
+
+
+def save_llm_output(record: Dict[str, Any]) -> None:
+    """
+    Save every LLM diagnosis result to data/llm_outputs.jsonl.
+
+    JSONL format:
+    - one JSON object per line
+    - easy to append
+    - easy to inspect later
+    """
+    try:
+        LLM_OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+        record = {
+            "saved_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            **record,
+        }
+
+        with open(LLM_OUTPUT_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+
+    except Exception as exc:
+        logger.warning(f"Failed to save LLM output: {exc}")
 
 
 def get_expert_fallback_diagnosis(sensor_id: str, severity: str, reason: str) -> str:
@@ -30,8 +68,6 @@ def get_expert_fallback_diagnosis(sensor_id: str, severity: str, reason: str) ->
     - Gemini is in cooldown
     - Gemini times out
     - Gemini API call fails
-
-    The fallback result should not be counted as a successful cloud LLM call.
     """
     diagnoses = [
         (
@@ -123,6 +159,7 @@ async def call_gemini_async(prompt: str) -> str:
 
     def sync_call() -> str:
         client = genai.Client(api_key=API_KEY)
+
         response = client.models.generate_content(
             model=MODEL_NAME,
             contents=prompt,
@@ -157,37 +194,73 @@ async def diagnose_anomaly(
 
     # 1. No API key: skip cloud call and use local expert fallback.
     if not API_KEY:
-        return {
+        explanation = get_expert_fallback_diagnosis(
+            sensor_id=sensor_id,
+            severity=severity,
+            reason="Gemini API key is not configured",
+        )
+
+        result = {
             "llm_called": False,
             "llm_status": "skipped",
             "fallback_used": True,
             "llm_latency_ms": 0,
             "model": MODEL_NAME,
-            "error": "GEMINI_API_KEY is not configured",
-            "explanation": get_expert_fallback_diagnosis(
-                sensor_id=sensor_id,
-                severity=severity,
-                reason="Gemini API key is not configured",
-            ),
+            "error": "GOOGLE_API_KEY or GEMINI_API_KEY is not configured",
+            "explanation": explanation,
         }
+
+        save_llm_output({
+            "llm_status": "skipped",
+            "fallback_used": True,
+            "model": MODEL_NAME,
+            "sensor_id": sensor_id,
+            "severity": severity,
+            "trigger_reason": trigger_reason,
+            "event_data": event_data,
+            "local_result": local_result,
+            "decision_result": decision_result,
+            "explanation": explanation,
+            "error": "API key is not configured",
+        })
+
+        return result
 
     # 2. Cooldown check.
     now = time.time()
 
     if now < LLM_COOLDOWN_UNTIL:
-        return {
+        explanation = get_expert_fallback_diagnosis(
+            sensor_id=sensor_id,
+            severity=severity,
+            reason="LLM cooldown is active",
+        )
+
+        result = {
             "llm_called": False,
             "llm_status": "cooldown",
             "fallback_used": True,
             "llm_latency_ms": 0,
             "model": MODEL_NAME,
             "cooldown_remaining_seconds": round(LLM_COOLDOWN_UNTIL - now, 3),
-            "explanation": get_expert_fallback_diagnosis(
-                sensor_id=sensor_id,
-                severity=severity,
-                reason="LLM cooldown is active",
-            ),
+            "explanation": explanation,
         }
+
+        save_llm_output({
+            "llm_status": "cooldown",
+            "fallback_used": True,
+            "model": MODEL_NAME,
+            "sensor_id": sensor_id,
+            "severity": severity,
+            "trigger_reason": trigger_reason,
+            "cooldown_remaining_seconds": round(LLM_COOLDOWN_UNTIL - now, 3),
+            "event_data": event_data,
+            "local_result": local_result,
+            "decision_result": decision_result,
+            "explanation": explanation,
+        })
+
+        return result
 
     prompt = build_prompt(
         event_data=event_data,
@@ -201,19 +274,37 @@ async def diagnose_anomaly(
         now = time.time()
 
         if now < LLM_COOLDOWN_UNTIL:
-            return {
+            explanation = get_expert_fallback_diagnosis(
+                sensor_id=sensor_id,
+                severity=severity,
+                reason="LLM cooldown is active",
+            )
+
+            result = {
                 "llm_called": False,
                 "llm_status": "cooldown",
                 "fallback_used": True,
                 "llm_latency_ms": 0,
                 "model": MODEL_NAME,
                 "cooldown_remaining_seconds": round(LLM_COOLDOWN_UNTIL - now, 3),
-                "explanation": get_expert_fallback_diagnosis(
-                    sensor_id=sensor_id,
-                    severity=severity,
-                    reason="LLM cooldown is active",
-                ),
+                "explanation": explanation,
             }
+
+            save_llm_output({
+                "llm_status": "cooldown",
+                "fallback_used": True,
+                "model": MODEL_NAME,
+                "sensor_id": sensor_id,
+                "severity": severity,
+                "trigger_reason": trigger_reason,
+                "cooldown_remaining_seconds": round(LLM_COOLDOWN_UNTIL - now, 3),
+                "event_data": event_data,
+                "local_result": local_result,
+                "decision_result": decision_result,
+                "explanation": explanation,
+            })
+
+            return result
 
         started = time.perf_counter()
 
@@ -226,8 +317,29 @@ async def diagnose_anomaly(
             elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
 
             # Start cooldown after a successful real cloud call.
-            # This prevents too many high-latency API calls during bursts.
             LLM_COOLDOWN_UNTIL = time.time() + DEFAULT_COOLDOWN_SECONDS
+
+            save_llm_output({
+                "llm_status": "success",
+                "fallback_used": False,
+                "model": MODEL_NAME,
+                "sensor_id": sensor_id,
+                "severity": severity,
+                "trigger_reason": trigger_reason,
+                "llm_latency_ms": elapsed_ms,
+                "event_data": event_data,
+                "local_result": local_result,
+                "decision_result": decision_result,
+                "prompt": prompt,
+                "explanation": response_text,
+            })
+
+            print()
+            print("========== GEMINI OUTPUT SAVED ==========")
+            print(f"Saved to: {LLM_OUTPUT_FILE}")
+            print(response_text)
+            print("=========================================")
+            print()
 
             return {
                 "llm_called": True,
@@ -245,6 +357,28 @@ async def diagnose_anomaly(
 
             LLM_COOLDOWN_UNTIL = time.time() + DEFAULT_COOLDOWN_SECONDS
 
+            explanation = get_expert_fallback_diagnosis(
+                sensor_id=sensor_id,
+                severity=severity,
+                reason="Gemini request timed out",
+            )
+
+            save_llm_output({
+                "llm_status": "timeout",
+                "fallback_used": True,
+                "model": MODEL_NAME,
+                "sensor_id": sensor_id,
+                "severity": severity,
+                "trigger_reason": trigger_reason,
+                "llm_latency_ms": elapsed_ms,
+                "event_data": event_data,
+                "local_result": local_result,
+                "decision_result": decision_result,
+                "prompt": prompt,
+                "error": "Gemini request timed out",
+                "explanation": explanation,
+            })
+
             return {
                 "llm_called": True,
                 "llm_status": "timeout",
@@ -252,17 +386,35 @@ async def diagnose_anomaly(
                 "llm_latency_ms": elapsed_ms,
                 "model": MODEL_NAME,
                 "error": "Gemini request timed out",
-                "explanation": get_expert_fallback_diagnosis(
-                    sensor_id=sensor_id,
-                    severity=severity,
-                    reason="Gemini request timed out",
-                ),
+                "explanation": explanation,
             }
 
         except ImportError as exc:
             elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
 
             logger.warning("google-genai is not installed. Switching to fallback diagnosis.")
+
+            explanation = get_expert_fallback_diagnosis(
+                sensor_id=sensor_id,
+                severity=severity,
+                reason="google-genai dependency is missing",
+            )
+
+            save_llm_output({
+                "llm_status": "skipped",
+                "fallback_used": True,
+                "model": MODEL_NAME,
+                "sensor_id": sensor_id,
+                "severity": severity,
+                "trigger_reason": trigger_reason,
+                "llm_latency_ms": elapsed_ms,
+                "event_data": event_data,
+                "local_result": local_result,
+                "decision_result": decision_result,
+                "prompt": prompt,
+                "error": f"google-genai is not installed: {exc}",
+                "explanation": explanation,
+            })
 
             return {
                 "llm_called": False,
@@ -271,11 +423,7 @@ async def diagnose_anomaly(
                 "llm_latency_ms": elapsed_ms,
                 "model": MODEL_NAME,
                 "error": f"google-genai is not installed: {exc}",
-                "explanation": get_expert_fallback_diagnosis(
-                    sensor_id=sensor_id,
-                    severity=severity,
-                    reason="google-genai dependency is missing",
-                ),
+                "explanation": explanation,
             }
 
         except Exception as exc:
@@ -285,6 +433,28 @@ async def diagnose_anomaly(
 
             LLM_COOLDOWN_UNTIL = time.time() + DEFAULT_COOLDOWN_SECONDS
 
+            explanation = get_expert_fallback_diagnosis(
+                sensor_id=sensor_id,
+                severity=severity,
+                reason="Gemini API call failed",
+            )
+
+            save_llm_output({
+                "llm_status": "error",
+                "fallback_used": True,
+                "model": MODEL_NAME,
+                "sensor_id": sensor_id,
+                "severity": severity,
+                "trigger_reason": trigger_reason,
+                "llm_latency_ms": elapsed_ms,
+                "event_data": event_data,
+                "local_result": local_result,
+                "decision_result": decision_result,
+                "prompt": prompt,
+                "error": str(exc),
+                "explanation": explanation,
+            })
+
             return {
                 "llm_called": True,
                 "llm_status": "error",
@@ -292,9 +462,5 @@ async def diagnose_anomaly(
                 "llm_latency_ms": elapsed_ms,
                 "model": MODEL_NAME,
                 "error": str(exc),
-                "explanation": get_expert_fallback_diagnosis(
-                    sensor_id=sensor_id,
-                    severity=severity,
-                    reason="Gemini API call failed",
-                ),
+                "explanation": explanation,
             }

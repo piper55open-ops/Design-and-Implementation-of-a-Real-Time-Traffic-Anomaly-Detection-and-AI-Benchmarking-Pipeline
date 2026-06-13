@@ -1,230 +1,238 @@
 # Real-Time Traffic Anomaly Detection and AI Benchmarking Pipeline
 
-This project is a capstone prototype for a real-time traffic anomaly detection and AI benchmarking pipeline. The system uses a FastAPI ingestion gateway, Pydantic schema validation, a Dead Letter Queue, a local LightGBM model, a decision layer, selective Gemini LLM escalation, benchmark logging, and a Streamlit dashboard.
+## 1. Project Overview
 
-## Project Architecture
+This project implements a real-time traffic anomaly detection and AI benchmarking pipeline.
 
-The pipeline follows a local-first architecture:
+The system receives simulated traffic sensor data, validates incoming payloads, isolates invalid data into a dead-letter queue, performs fast local traffic-flow prediction using a LightGBM model, and selectively escalates high-risk or uncertain cases to Gemini for natural-language diagnosis.
 
-1. Simulated traffic events are generated from the PEMS03 dataset.
-2. FastAPI receives incoming traffic payloads.
-3. Pydantic validates the payload structure and value ranges.
-4. Invalid payloads are stored in the Dead Letter Queue.
-5. Valid payloads are passed to the local LightGBM model.
-6. The decision layer decides whether the event should be handled locally or escalated to Gemini.
-7. Local and LLM results are logged for benchmarking.
-8. Streamlit dashboard visualises live traffic and benchmark metrics.
+The main goal of this project is not only to build a prediction model, but to design a reliable software pipeline that can evaluate latency, data quality handling, local-first inference, cloud AI escalation, and estimated cost savings.
 
-## Main Components
+## 2. System Architecture
+
+The system follows this workflow:
 
 ```text
-app/
-  api_gateway.py       FastAPI ingestion endpoint
-  gateway.py           Pydantic validation schema
-  dlq.py               Dead Letter Queue logic
-  model_service.py     Local LightGBM inference
-  decision_layer.py    Local-first escalation rules
-  llm_client.py        Gemini API client
-  pipeline_service.py  Main processing pipeline
-  dashboard.py         Streamlit dashboard
-
-scripts/
-  pems_sensor_client.py  Sends simulated PEMS03 traffic events
-  sensor_client.py       Basic sensor client
-
-data/
-  PEMS03.npz             Traffic dataset
-
-run_server.py            Starts FastAPI server
-train_baseline.py        Trains local LightGBM baseline model
-benchmark_analyzer.py    Analyses benchmark logs
+PEMS traffic data simulator
+        ↓
+FastAPI API Gateway
+        ↓
+Pydantic validation
+        ↓
+Invalid data → Dead Letter Queue
+Valid data → Local LightGBM model
+        ↓
+Decision Layer
+        ↓
+Local-only handling OR Gemini escalation
+        ↓
+Benchmark logging
+        ↓
+Benchmark analyzer
+        ↓
+Streamlit dashboard
 ```
 
-## Setup
+## 3. Main Components
 
-Create and activate a virtual environment:
+```text
+app/api_gateway.py        FastAPI traffic event endpoint
+app/gateway.py            Pydantic request validation
+app/dlq.py                Dead-letter queue handling
+app/model_service.py      Local LightGBM model inference
+app/decision_layer.py     Selective escalation logic
+app/llm_client.py         Gemini cloud diagnosis client
+app/pipeline_service.py   Main processing pipeline
+app/dashboard.py          Streamlit dashboard
 
-```bash
-python -m venv .venv
+scripts/pems_sensor_client.py   PEMS traffic data simulator
+benchmark_analyzer.py           Benchmark result analyzer
+reset_experiment.py             Clears runtime experiment logs
+train_baseline.py               Basic local model training script
+train_pems03_04_test07.py       Cross-dataset LightGBM training script
+run_server.py                   FastAPI server entry point
 ```
 
-On Windows PowerShell:
+## 4. Data Files
 
-```powershell
-.venv\Scripts\activate
+The project uses PEMS traffic datasets stored in the `data/` folder:
+
+```text
+data/PEMS03.npz
+data/PEMS04.npz
+data/PEMS07.npz
 ```
 
-On macOS/Linux:
+The current local model is trained using PEMS03 and PEMS04, and evaluated on PEMS07 as an independent test dataset.
 
-```bash
-source .venv/bin/activate
+Model evaluation outputs are saved as:
+
+```text
+data/model_metrics.json
+data/model_metrics_pems03_04_to_pems07.json
 ```
 
-Install dependencies:
+Runtime logs such as benchmark events, DLQ logs, and LLM outputs are generated during experiments and should not be treated as fixed source files.
+
+## 5. Installation
+
+Create and activate a Python environment, then install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## Environment Variables
+## 6. Environment Variables
 
-Create a local `.env` file based on `.env.example`:
-
-```bash
-cp .env.example .env
-```
-
-Then add your Gemini API key:
+Create a `.env` file in the project root:
 
 ```env
 GEMINI_API_KEY=your_gemini_api_key_here
-GEMINI_MODEL=gemini-1.5-flash
+GEMINI_MODEL=gemini-2.0-flash
 ```
 
-Do not commit `.env`.
-
-## Train the Local Model
-
-Run:
-
-```bash
-python train_baseline.py
-```
-
-This creates or updates the local traffic model used by the pipeline.
-
-## Run the FastAPI Server
-
-Run:
-
-```bash
-python run_server.py
-```
-
-The API server should start locally.
-
-Health check:
+A template is provided in:
 
 ```text
-http://127.0.0.1:8000/health
+.env.example
 ```
 
-## Run the PEMS Sensor Client
+The real `.env` file should not be committed or submitted because it may contain private API keys.
 
-In another terminal, run:
+## 7. Train the Local Model
+
+To train the cross-dataset LightGBM model using PEMS03 and PEMS04, and evaluate it on PEMS07:
 
 ```bash
-python scripts/pems_sensor_client.py
+python train_pems03_04_test07.py
 ```
 
-This sends simulated traffic events to the FastAPI gateway.
+This generates:
 
-## Run the Dashboard
-
-In another terminal, run:
-
-```bash
-streamlit run app/dashboard.py
+```text
+app/traffic_model.txt
+data/model_metrics.json
+data/model_metrics_pems03_04_to_pems07.json
 ```
 
-## Run Benchmark Analysis
+The model predicts the next traffic flow value using recent historical flow patterns and engineered time-series features.
 
-After generating benchmark logs, run:
+## 8. Run the FastAPI Backend
 
-```bash
-python benchmark_analyzer.py
-```
-
-## Notes
-
-This project is a benchmarking prototype, not a production deployment. The current focus is to evaluate validation, DLQ isolation, local-first inference, selective LLM escalation, latency, throughput, and estimated API cost.
-
-## Experiment Workflow
-
-This section describes the recommended workflow for running the prototype and generating benchmark results.
-
-### 1. Run the FastAPI Server
+Start the backend server:
 
 ```bash
 python run_server.py
-The server exposes the traffic ingestion API at:
+```
 
-http://127.0.0.1:8000/v1/traffic/events
-Health check:
+The traffic event endpoint is:
 
-http://127.0.0.1:8000/health
-2. Train the Local LightGBM Model
-python train_baseline.py
-This trains the local LightGBM model and generates:
+```text
+POST http://127.0.0.1:8000/v1/traffic/events
+```
 
-app/traffic_model.txt
-reports/model_metrics.json
-3. Run Unit Tests
-pytest -q
-The tests cover:
+## 9. Run the Traffic Data Simulator
 
-valid traffic payloads
+Open another terminal and run:
 
-invalid timestamps
+```bash
+python scripts/pems_sensor_client.py --dirty-ratio 0.00 --sensors 2 --duration 60 --time-start 10 --interval 0.05 --accident --quiet
+```
 
-numeric strings
+Example dirty-data experiment:
 
-unexpected extra fields
+```bash
+python scripts/pems_sensor_client.py --dirty-ratio 0.10 --sensors 2 --duration 60 --time-start 10 --interval 0.05 --accident --quiet
+```
 
-malformed JSON
+Important parameters:
 
-validation gateway rejection logic
+```text
+--dirty-ratio   Ratio of injected invalid payloads
+--sensors       Number of simulated sensors
+--duration      Number of time steps
+--time-start    Starting time index
+--interval      Sending interval between requests
+--accident      Injects an artificial traffic-flow drop
+--quiet         Reduces console output
+```
 
-4. Run a Small Validation Test
-python scripts/pems_sensor_client.py --dirty-ratio 0.1 --sensors 2 --duration 20 --interval 0.1
-This sends traffic events to the FastAPI gateway and injects controlled dirty payloads.
+## 10. Analyze Benchmark Results
 
-Expected behaviour:
+After running the simulator, analyze the generated logs:
 
-valid payloads return HTTP 200
-
-invalid payloads return HTTP 400 or 422
-
-rejected payloads are written to the DLQ
-
-5. Run an Accident / Escalation Test
-python scripts/pems_sensor_client.py --dirty-ratio 0.1 --sensors 2 --duration 20 --time-start 10 --interval 0.1 --accident
-This enables a controlled flow-drop scenario to test the decision layer and selective LLM escalation.
-
-6. Run Benchmark Analysis
+```bash
 python benchmark_analyzer.py
-This reads the benchmark logs and generates:
+```
 
-reports/benchmark_summary.json
-The summary includes:
+The analyzer reports:
 
-total requests
-
-DLQ rejections
-
-local pipeline latency
-
-local model latency
-
+```text
+Total requests
+Valid requests
+Invalid requests sent to DLQ
+Dirty data interception rate
+Local-only processing rate
 LLM escalation rate
+LLM success / cooldown / failure count
+Average and percentile latency
+Estimated cloud AI cost saving
+```
 
-actual cloud call rate
+The summary is saved to:
 
-estimated cloud cost saving
+```text
+data/benchmark_summary.json
+```
 
-7. Run the Streamlit Dashboard
+## 11. Run the Dashboard
+
+Start the Streamlit dashboard:
+
+```bash
 streamlit run app/dashboard.py
-The dashboard contains three main sections:
+```
 
-Live Monitoring
+The dashboard displays:
 
-Benchmark Summary
+```text
+Real-time traffic monitoring
+Benchmark results
+Local model evaluation metrics
+DLQ statistics
+LLM escalation statistics
+Estimated cost savings
+```
 
-Local Model Metrics
+## 12. Reset Runtime Experiment Files
 
-8. Suggested Dirty-Data Experiment Matrix
-python scripts/pems_sensor_client.py --dirty-ratio 0.00 --sensors 2 --duration 60 --interval 0.05 --accident --quiet
-python scripts/pems_sensor_client.py --dirty-ratio 0.05 --sensors 2 --duration 60 --interval 0.05 --accident --quiet
-python scripts/pems_sensor_client.py --dirty-ratio 0.10 --sensors 2 --duration 60 --interval 0.05 --accident --quiet
-python scripts/pems_sensor_client.py --dirty-ratio 0.20 --sensors 2 --duration 60 --interval 0.05 --accident --quiet
-These experiments can be used to evaluate how the validation gateway and DLQ behave under different dirty-data ratios.
+Before running a new experiment, clear old runtime logs:
+
+```bash
+python reset_experiment.py
+```
+
+This removes temporary files such as:
+
+```text
+data/benchmark_events.jsonl
+data/dlq.jsonl
+data/live_traffic.json
+data/benchmark_summary.json
+```
+
+## 13. Run Tests
+
+Run the test suite:
+
+```bash
+pytest -q
+```
+
+The tests cover API health checks, request validation, invalid payload handling, and basic gateway behavior.
+
+## 14. Notes
+
+This project uses a local-first design. Most traffic events are handled by the local LightGBM model, while only high-risk or uncertain cases are escalated to Gemini.
+
+This reduces unnecessary cloud AI usage while still allowing the system to generate natural-language explanations for important anomaly cases.
